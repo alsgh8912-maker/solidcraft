@@ -780,6 +780,8 @@ pub struct Face {
     /// 두께 방향: 면 법선(place.r의 z열) × side
     pub side: f64,
     pub parent: Option<usize>,
+    /// 부모와 만나는 선에서 이 면 끝까지의 외치수 (기준 면은 없음)
+    pub outer: Option<f64>,
     pub bend: Option<BendOfFace>,
 }
 
@@ -1163,6 +1165,7 @@ pub fn fold(parsed: &Parsed, opts: &FoldOptions) -> Result<Model, String> {
     }
     let mut place: Vec<Option<Rigid>> = vec![None; faces.len()];
     let mut parent: Vec<Option<(usize, usize, f64)>> = vec![None; faces.len()]; // (부모, 링크, D)
+    let mut axis_of: Vec<Option<(P2, P2)>> = vec![None; faces.len()]; // (축 위 점, 부모→자식 방향)
     place[root] = Some(Rigid::I);
     let mut order = vec![root];
     let mut qi = 0;
@@ -1193,6 +1196,7 @@ pub fn fold(parsed: &Parsed, opts: &FoldOptions) -> Result<Model, String> {
             let m = Rigid::rot_about(p, k, dir * ang * DEG).mul(&Rigid::trans([n[0] * shift, n[1] * shift, 0.0]));
             place[c] = Some(place[f].unwrap_or(Rigid::I).mul(&m));
             parent[c] = Some((f, li, d));
+            axis_of[c] = Some(([a[0] + n[0] * (axis_off - shift), a[1] + n[1] * (axis_off - shift)], n));
             order.push(c);
         }
     }
@@ -1253,6 +1257,7 @@ pub fn fold(parsed: &Parsed, opts: &FoldOptions) -> Result<Model, String> {
             let l = &links[li];
             BendOfFace { layer: bends_in[l.bend].3.clone(), angle: bend_ang[l.bend], d, flat: l.flat }
         });
+        let outer = axis_of[f].map(|(o, n)| (pts.iter().map(|p| dot(sub(*p, o), n)).fold(f64::NEG_INFINITY, f64::max) * 1000.0).round() / 1000.0);
         out_faces.push(Face {
             id: f,
             root: f == root,
@@ -1264,6 +1269,7 @@ pub fn fold(parsed: &Parsed, opts: &FoldOptions) -> Result<Model, String> {
             place: pl,
             side,
             parent: parent[f].map(|p| p.0),
+            outer,
             bend,
         });
     }

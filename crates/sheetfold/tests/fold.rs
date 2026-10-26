@@ -59,6 +59,19 @@ fn the_info_block_gives_name_material_and_thickness() {
 }
 
 #[test]
+fn each_folded_plate_reports_its_outside_dimension() {
+    let opts = FoldOptions { thickness: Some(1.6), d90: Some(2.8), ..FoldOptions::default() };
+    let m = fold_dxf(&fixture("box-return-15.dxf"), &opts).unwrap_or_else(|e| panic!("{e}"));
+    let mut outer: Vec<f64> = m.faces.iter().filter_map(|f| f.outer).collect();
+    outer.sort_by(|a, b| a.total_cmp(b));
+    let want = [15.0, 15.0, 40.0, 40.0, 40.0, 40.0];
+    assert_eq!(outer.len(), want.len(), "{outer:?}");
+    for (g, w) in outer.iter().zip(want) {
+        assert!((g - w).abs() < 0.02, "{outer:?}");
+    }
+}
+
+#[test]
 fn without_a_deduction_a_flat_pattern_still_folds_and_says_why_it_is_short() {
     let m = fold_dxf(&fixture("box-200x150x40.dxf"), &FoldOptions::default()).unwrap_or_else(|e| panic!("{e}"));
     assert!(m.warnings.iter().any(|w| w.contains("연신율")));
