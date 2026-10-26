@@ -1,0 +1,53 @@
+# 판금 전용판(kerf 브랜치) 윈도우 64비트 빌드.
+# kerf 브랜치에 올라오면 시험 → 빌드 → 실행 파일을 Actions의 Artifacts에 올린다(30일 보관).
+# 원본 저장소의 release.yml은 모든 운영체제를 만들어 오래 걸리므로 이 포크에서는 이것만 쓴다.
+name: Kerf Windows build
+
+on:
+  push:
+    branches: [kerf, "kerf/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kerf-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-x64:
+    name: Windows x64
+    runs-on: windows-latest
+    timeout-minutes: 240
+    env:
+      CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS: -C target-feature=+crt-static
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: kerf-windows-x64
+      - name: Test sheet folding
+        run: cargo test -p solidcraft-sheetfold --target x86_64-pc-windows-msvc
+      - name: Build
+        run: cargo build --release --locked -p solidcraft -p solidcraft-cli --target x86_64-pc-windows-msvc
+      - name: Collect
+        shell: pwsh
+        run: |
+          $out = 'dist'
+          New-Item -ItemType Directory -Force $out | Out-Null
+          $rel = 'target/x86_64-pc-windows-msvc/release'
+          Copy-Item "$rel/solidcraft.exe" "$out/SolidCraft-kerf.exe"
+          Copy-Item "$rel/solidcraft-cli.exe" "$out/solidcraft-cli.exe"
+          Copy-Item LICENSE-APACHE, LICENSE-MIT, NOTICE, ATTRIBUTION.md $out
+          $sha = "${{ github.sha }}".Substring(0, 7)
+          Set-Content "$out/README.txt" "SolidCraft 판금 전용판 시험 빌드 ($sha)`r`nSolidCraft-kerf.exe 를 실행하세요. 설치가 필요 없습니다."
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: SolidCraft-kerf-windows-x64
+          path: dist/*
+          retention-days: 30
+          if-no-files-found: error

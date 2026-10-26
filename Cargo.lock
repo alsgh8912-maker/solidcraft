@@ -4397,6 +4397,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "solidcraft-sheetfold"
+version = "0.23.1"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "solidcraft-sketch"
 version = "0.23.1"
 dependencies = [

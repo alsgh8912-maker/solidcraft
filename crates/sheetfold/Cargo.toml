@@ -1,0 +1,15 @@
+[package]
+name = "solidcraft-sheetfold"
+description = "SolidCraft sheet metal: fold a flat-pattern DXF (bend lines on Nck-DG / Nck-DF layers) back into a 3D sheet part"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
