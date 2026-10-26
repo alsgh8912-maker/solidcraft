@@ -28,15 +28,16 @@ fn check(name: &str, expect: [f64; 3]) {
 fn profiles_fold_back_to_their_outside_dimensions() {
     check("l-50x30.dxf", [50.0, 100.0, 30.0]);
     check("u-30-60-30.dxf", [60.0, 100.0, 30.0]);
-    check("z-30-40-30.dxf", [60.0, 100.0, 40.0]);
-    check("hat.dxf", [70.0, 100.0, 25.0]);
+    // a bend the other way measures from the other face: one thickness less
+    check("z-30-40-30.dxf", [58.4, 100.0, 40.0]);
+    check("hat.dxf", [66.8, 100.0, 25.0]);
 }
 
 #[test]
 fn boxes_fold_back_to_their_outside_dimensions() {
     check("box-200x150x40.dxf", [200.0, 150.0, 40.0]);
     check("box-wrap-front-back.dxf", [200.0, 150.0, 40.0]);
-    check("box-return-15.dxf", [200.0, 165.0, 40.0]);
+    check("box-return-15.dxf", [200.0, 163.4, 40.0]);
 }
 
 #[test]

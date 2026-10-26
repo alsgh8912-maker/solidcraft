@@ -610,6 +610,13 @@ fn bend_lines_can_be_left_out_and_everything_put_on_layer_0() {
     let single = entities(&export(&mut s, json!({"layers": "single"})));
     assert_eq!(single.len(), default.len());
     assert!(single.iter().all(|e| layer(e) == "0"), "{:?}", single.iter().map(layer).collect::<Vec<_>>());
+    // A laser shop's names: the cut on 0, the bends on Nck-DG (up) and Nck-DF (down), the label marked on Nck-RK.
+    let nck = entities(&export(&mut s, json!({"layers": "nck"})));
+    assert_eq!(nck.len(), default.len());
+    let count = |name: &str| nck.iter().filter(|e| layer(e) == name).count();
+    let (up, down) = (default.iter().filter(|e| layer(e) == "BEND_UP").count(), default.iter().filter(|e| layer(e) == "BEND_DOWN").count());
+    assert_eq!((count("Nck-DG"), count("Nck-DF")), (up, down));
+    assert!(nck.iter().all(|e| matches!(layer(e).as_str(), "0" | "Nck-DG" | "Nck-DF" | "Nck-RK")), "{:?}", nck.iter().map(layer).collect::<Vec<_>>());
     for bad in [json!({"bend_lines": "no"}), json!({"layers": "one"})] {
         assert!(s.execute("sheet.export_dxf", &bad).is_err(), "{bad}");
     }

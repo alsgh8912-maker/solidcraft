@@ -87,7 +87,7 @@ pub static COMMANDS: &[CommandSpec] = &[
              bend_notes?: bool (default false: a note beside each bend line on layer BEND_NOTES, `B1 UP 90%%d R1`, its angle the included angle \
               when the body's rule has angle_display: included), note_height?: mm (default 3), \
              bend_lines?: bool (default true; false leaves BEND_UP and BEND_DOWN out, for a cutter that would cut them), \
-             layers?: roles|single (default roles, the layers below; single: every entity on layer 0), \
+             layers?: roles|single|nck (default roles, the layers below; single: every entity on layer 0; nck: cut on 0, bends on Nck-DG (up) and Nck-DF (down), marking on Nck-RK), \
              per_body?: bool (a file for every sheet body, `<path>-<body>.dxf`, or their DXF texts without a path → files: [{body, path | dxf, bends}]; not with `body`) \
              → DXF (AutoCAD 2000, mm): layers OUTLINE (the outer contour), CUT (what is cut out inside it), TEXT or ETCH (letters), BEND_UP and BEND_DOWN (dashed centre lines), BEND_NOTES, \
              POCKET_<BOTTOM|TOP|INTERNAL>_Z<from>_TO_<to>_MM (one per side and depth) and PERFORATION; inner contours come before the outline",
@@ -732,6 +732,9 @@ pub struct DxfOptions {
     pub no_bend_lines: bool,
     /// Everything on layer 0 instead of a layer for each role (#4314).
     pub one_layer: bool,
+    /// The layer names a laser shop's nesting expects: cut contours on 0, bend lines on Nck-DG (up,
+    /// towards the viewer) and Nck-DF (down), marking (text etched, not cut) on Nck-RK.
+    pub nck_layers: bool,
 }
 
 /// The layer of a role: its AutoCAD colour index (1 red, 2 yellow, 3 green, 4 cyan, 5 blue,
@@ -891,6 +894,32 @@ pub fn flat_dxf(sh: &SheetBody, o: &DxfOptions) -> Result<String> {
         }
         return Ok(solidcraft_io::write_dxf_drawing(&[], &entities)?);
     }
+    // A laser shop's layer names: what is cut on 0, bends up and down, what is marked.
+    if o.nck_layers {
+        for e in &mut entities {
+            let to = match e.layer.as_str() {
+                "BEND_UP" => "Nck-DG",
+                "BEND_DOWN" => "Nck-DF",
+                "TEXT" | "ETCH" => "Nck-RK",
+                "BEND_NOTES" => continue,
+                _ => "0",
+            };
+            e.layer = to.into();
+        }
+        let mut names: std::collections::BTreeSet<&str> = ["Nck-DG", "Nck-DF"].into();
+        names.extend(entities.iter().map(|e| e.layer.as_str()));
+        let layers: Vec<_> = names
+            .into_iter()
+            .filter(|n| *n != "0")
+            .map(|n| match n {
+                "Nck-DG" => solidcraft_io::DxfLayer::new(n, 1),
+                "Nck-DF" => solidcraft_io::DxfLayer::new(n, 5),
+                "Nck-RK" => solidcraft_io::DxfLayer::new(n, 3),
+                _ => dxf_layer(n),
+            })
+            .collect();
+        return Ok(solidcraft_io::write_dxf_drawing(&layers, &entities)?);
+    }
     // The four layers of every flat pattern, and those the rest is on.
     let mut names: std::collections::BTreeSet<String> = ["OUTLINE", "CUT", "BEND_UP", "BEND_DOWN"].map(String::from).into();
     names.extend(entities.iter().map(|e| e.layer.clone()));
@@ -929,15 +958,16 @@ fn dxf_options(p: &Value, cmd: &str) -> Result<DxfOptions> {
         Some(Value::Bool(false)) => true,
         Some(_) => return Err(bad(cmd, "`bend_lines` must be true or false")),
     };
-    let one_layer = match p.get("layers").filter(|v| !v.is_null()) {
-        None => false,
+    let (one_layer, nck_layers) = match p.get("layers").filter(|v| !v.is_null()) {
+        None => (false, false),
         Some(v) => match v.as_str().map(str::to_ascii_lowercase).as_deref() {
-            Some("roles") => false,
-            Some("single") => true,
-            _ => return Err(bad(cmd, "`layers` must be roles or single")),
+            Some("roles") => (false, false),
+            Some("single") => (true, false),
+            Some("nck") => (false, true),
+            _ => return Err(bad(cmd, "`layers` must be roles, single or nck")),
         },
     };
-    Ok(DxfOptions { curves, text, bend_notes, no_bend_lines, one_layer })
+    Ok(DxfOptions { curves, text, bend_notes, no_bend_lines, one_layer, nck_layers })
 }
 
 /// The files of an export of every sheet body: `path` with `-<body>` before its extension

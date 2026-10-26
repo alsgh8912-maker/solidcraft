@@ -1166,6 +1166,12 @@ pub fn fold(parsed: &Parsed, opts: &FoldOptions) -> Result<Model, String> {
     let mut place: Vec<Option<Rigid>> = vec![None; faces.len()];
     let mut parent: Vec<Option<(usize, usize, f64)>> = vec![None; faces.len()]; // (부모, 링크, D)
     let mut axis_of: Vec<Option<(P2, P2)>> = vec![None; faces.len()]; // (축 위 점, 부모→자식 방향)
+    let root_sum: f64 = links.iter().filter(|l| l.f1 == root || l.f2 == root).map(|l| bends_in[l.bend].2).sum();
+    // 두께가 붙는 쪽 (면 법선 기준 +1 / -1)
+    let mut side_of: Vec<f64> = vec![1.0; faces.len()];
+    if let Some(s) = side_of.get_mut(root) {
+        *s = if root_sum >= 0.0 { 1.0 } else { -1.0 };
+    }
     place[root] = Some(Rigid::I);
     let mut order = vec![root];
     let mut qi = 0;
@@ -1191,9 +1197,15 @@ pub fn fold(parsed: &Parsed, opts: &FoldOptions) -> Result<Model, String> {
             } else {
                 (-l.gap, -l.gap, 0.0)
             };
-            let p = [a[0] + n[0] * axis_off, a[1] + n[1] * axis_off, 0.0];
+            // 절곡의 바깥(외치수) 쪽: 부모 두께와 같은 쪽으로 꺾으면 부모의 외치수면, 반대로 꺾으면 두께만큼 떨어진 반대 면
+            let parent_side = side_of.get(f).copied().unwrap_or(1.0);
+            let z_off = if *dir == parent_side { 0.0 } else { parent_side * t };
+            let p = [a[0] + n[0] * axis_off, a[1] + n[1] * axis_off, z_off];
             let k = [n[1], -n[0], 0.0];
-            let m = Rigid::rot_about(p, k, dir * ang * DEG).mul(&Rigid::trans([n[0] * shift, n[1] * shift, 0.0]));
+            let m = Rigid::rot_about(p, k, dir * ang * DEG).mul(&Rigid::trans([n[0] * shift, n[1] * shift, z_off]));
+            if let Some(s) = side_of.get_mut(c) {
+                *s = *dir;
+            }
             place[c] = Some(place[f].unwrap_or(Rigid::I).mul(&m));
             parent[c] = Some((f, li, d));
             axis_of[c] = Some(([a[0] + n[0] * (axis_off - shift), a[1] + n[1] * (axis_off - shift)], n));
@@ -1239,13 +1251,7 @@ pub fn fold(parsed: &Parsed, opts: &FoldOptions) -> Result<Model, String> {
             pts = clean_poly(&res);
         }
         let pl = place[f].unwrap_or(Rigid::I);
-        let side = match parent[f] {
-            Some((_, li, _)) => bends_in[links[li].bend].2,
-            None => {
-                let s: f64 = links.iter().filter(|l| l.f1 == f || l.f2 == f).map(|l| bends_in[l.bend].2).sum();
-                if s >= 0.0 { 1.0 } else { -1.0 }
-            }
-        };
+        let side = side_of.get(f).copied().unwrap_or(1.0);
         for p in &pts {
             let q = pl.apply([p[0], p[1], 0.0]);
             for k in 0..3 {
