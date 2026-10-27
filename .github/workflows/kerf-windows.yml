@@ -32,8 +32,8 @@ jobs:
           key: kerf-windows-x64
       - name: Test sheet folding
         run: cargo test -p solidcraft-sheetfold --target x86_64-pc-windows-msvc
-      - name: Build
-        run: cargo build --release --locked -p solidcraft -p solidcraft-cli --target x86_64-pc-windows-msvc
+      - name: Build (판금 전용판)
+        run: cargo build --release --locked -p solidcraft -p solidcraft-cli --features solidcraft/sheet-only --target x86_64-pc-windows-msvc
       - name: Collect
         shell: pwsh
         run: |
@@ -44,7 +44,7 @@ jobs:
           Copy-Item "$rel/solidcraft-cli.exe" "$out/solidcraft-cli.exe"
           Copy-Item LICENSE-APACHE, LICENSE-MIT, NOTICE, ATTRIBUTION.md $out
           $sha = "${{ github.sha }}".Substring(0, 7)
-          Set-Content "$out/README.txt" "SolidCraft 판금 전용판 시험 빌드 ($sha)`r`nSolidCraft-kerf.exe 를 실행하세요. 설치가 필요 없습니다."
+          Set-Content "$out/README.txt" "SolidCraft 판금 전용판 시험 빌드 ($sha)`r`nSolidCraft-kerf.exe 를 실행하세요. 설치가 필요 없습니다.`r`n전개도 DXF(절곡선 Nck-DG/Nck-DF)를 이 프로그램으로 열면 접어서 판금 부품으로 엽니다. KerfLine 단품의 [SolidCraft로 열기]도 같습니다."
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: SolidCraft-kerf-windows-x64

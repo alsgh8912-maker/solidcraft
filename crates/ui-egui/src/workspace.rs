@@ -6,6 +6,18 @@ use solidcraft_engine::doc::FeatureKind;
 
 pub const TABS: &[&str] = &["MODEL", "SURFACE", "ASSEMBLE", "INSERT", "INSPECT", "MANAGE", "VIEW"];
 
+/// The sheet-metal edition (`sheet-only` feature, the kerf build): the ribbon offers sheet-metal
+/// work only — SHEET METAL first, the sketch while one is open, then inserting, inspecting and the
+/// view. The design itself is unchanged: a design with other features still opens and evaluates.
+pub const SHEET_ONLY: bool = cfg!(feature = "sheet-only");
+/// The ribbon's tabs in the sheet-metal edition (SKETCH joins while a sketch is open).
+pub const SHEET_ONLY_TABS: &[&str] = &["SHEET METAL", "INSERT", "INSPECT", "VIEW"];
+
+/// The tab a design starts on, and falls back to.
+pub fn home_tab() -> &'static str {
+    if SHEET_ONLY { "SHEET METAL" } else { "MODEL" }
+}
+
 /// Reading order of the compact, three-column constraint gallery. Icons come from each spec.
 pub const CONSTRAINT_GALLERY: &[&str] = &[
     "sketch.constraint.horizontal_vertical",
@@ -253,10 +265,11 @@ pub const SECTIONS: &[Section] = &[
         tab: "SHEET METAL",
         panel: "CREATE",
         promoted: 4,
-        ids: &["sheet.flange", "sheet.path_flange", "sheet.hem", "sheet.fold", "sheet.perforate", "sheet.convert"],
+        ids: &["sheet.flange", "sheet.path_flange", "sheet.hem", "sheet.fold", "sheet.perforate", "sheet.convert", "sheet.import_flat"],
     },
     Section { tab: "SHEET METAL", panel: "FLAT", promoted: 3, ids: &["sheet.unfold", "sheet.refold", "sheet.flat_pattern"] },
-    Section { tab: "SHEET METAL", panel: "OUTPUT", promoted: 2, ids: &["sheet.export_dxf", "sheet.export_bend_table"] },
+    // DXF for the laser, the bend table, and the folded part as STEP for other CAD.
+    Section { tab: "SHEET METAL", panel: "OUTPUT", promoted: 3, ids: &["sheet.export_dxf", "sheet.export_bend_table", "file.export"] },
     Section { tab: "SHEET METAL", panel: "RULES", promoted: 1, ids: &["sheet.manage_rules"] },
     Section { tab: "SHEET METAL", panel: "CONFIGURE", promoted: 2, ids: CONFIGURE },
     // One Render tab with task-ordered groups; only implemented registry commands.
@@ -523,6 +536,14 @@ pub fn visible_tabs(app: &crate::SolveApp) -> Vec<&'static str> {
     if crate::render_workspace::active(app) {
         return vec!["RENDER"];
     }
+    if SHEET_ONLY {
+        let mut tabs = vec![SHEET_ONLY_TABS[0]];
+        if app.session.active_sketch.is_some() {
+            tabs.push("SKETCH");
+        }
+        tabs.extend_from_slice(&SHEET_ONLY_TABS[1..]);
+        return tabs;
+    }
     let mut tabs = TABS.to_vec();
     if app.session.active_sketch.is_some() {
         tabs.push("SKETCH");
@@ -557,17 +578,17 @@ pub fn sync_context(app: &mut crate::SolveApp) {
             "SKETCH"
         } else if let Some(back) = back.as_deref().filter(|t| *t != "SKETCH" && visible_tabs(app).contains(t)) {
             // Finishing a sketch goes back to the tab it came from (#3250).
-            visible_tabs(app).into_iter().find(|t| t == &back).unwrap_or("MODEL")
+            visible_tabs(app).into_iter().find(|t| t == &back).unwrap_or(home_tab())
         } else if context.is_some() {
             "SHEET METAL"
         } else {
-            "MODEL"
+            home_tab()
         }
         .into();
         app.ui.ribbon_context = context;
     }
     if !visible_tabs(app).contains(&app.ui.tab.as_str()) {
-        app.ui.tab = "MODEL".into();
+        app.ui.tab = home_tab().into();
     }
 }
 

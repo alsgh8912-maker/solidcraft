@@ -322,7 +322,7 @@ impl Default for UiState {
     fn default() -> Self {
         UiState {
             layout: Default::default(),
-            tab: "MODEL".into(),
+            tab: crate::workspace::home_tab().into(),
             ribbon_context: None,
             sketch_return_tab: None,
             show_browser: true,
@@ -1157,6 +1157,29 @@ impl SolveApp {
         }
         if id == "component.relink" {
             linked_source::start_selected(self);
+            return;
+        }
+        // Open a laser flat pattern (DXF with Nck-DG / Nck-DF bend lines) folded, as a sheet part.
+        if id == "sheet.import_flat" {
+            self.pick_open_for(&["dxf"], |app, path| {
+                if let Some(path) = path {
+                    let empty = app.session.doc.features.is_empty();
+                    if app.run("sheet.import_flat", json!({ "path": path })).is_ok() {
+                        if empty {
+                            let stem = std::path::Path::new(&path).file_stem().map(|x| x.to_string_lossy().to_string()).unwrap_or_default();
+                            if !stem.is_empty() {
+                                app.session.doc_mut().name = stem;
+                            }
+                        }
+                        app.fit_view();
+                    }
+                }
+            });
+            return;
+        }
+        // Save the part as STEP from the ribbon (the File menu's Export STEP…).
+        if id == "file.export" {
+            toolbar::FileAction::Export("step").run(self);
             return;
         }
         if matches!(id, "file.insert_step" | "file.insert_mesh") {

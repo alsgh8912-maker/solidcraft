@@ -261,6 +261,14 @@ fn open(s: &mut Session, p: &Value) -> Result<Value> {
         return Err(bad("doc.open", "`up` applies to STEP, IGES and glTF files only"));
     }
     if let Some(command) = super::drawing_import_command(path) {
+        // A laser flat pattern (bend lines on Nck-DG / Nck-DF) opens folded, as a sheet part.
+        let command = if command == "sketch.insert_dxf"
+            && solidcraft_io::vfs::read(path, 64 << 20).is_ok_and(|b| super::sheet_import::is_flat_pattern(&String::from_utf8_lossy(&b)))
+        {
+            "sheet.import_flat"
+        } else {
+            command
+        };
         let stem = std::path::Path::new(path).file_stem().map(|x| x.to_string_lossy().to_string()).unwrap_or_else(|| "Untitled".into());
         let mut fresh = Session::new(Document::new(&stem));
         let mut out = fresh.execute(command, &json!({"path": path}))?;

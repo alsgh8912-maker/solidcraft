@@ -19,7 +19,7 @@ use std::f64::consts::PI;
 
 const DEG: f64 = PI / 180.0;
 const CHORD: f64 = 0.05;
-type P2 = [f64; 2];
+pub type P2 = [f64; 2];
 
 /// 읽어 들인 도면 요소 (모든 좌표는 도면 단위, mm 가정).
 #[derive(Debug, Clone)]
@@ -783,6 +783,8 @@ pub struct Info {
     pub material: Option<String>,
     pub thickness: f64,
     pub qty: Option<u32>,
+    /// 90° 연신율 (`D:` 메모, KerfLine이 재질·두께의 값을 적어 보낸다). `FoldOptions::d90`이 없으면 이 값
+    pub d90: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -919,6 +921,13 @@ fn read_info(entities: &[Entity]) -> Info {
         {
             info.qty = Some(x);
         }
+        if let Some(v) = field('D')
+            && let Ok(x) = v.split_whitespace().next().unwrap_or("").parse::<f64>()
+            && x.is_finite()
+            && (0.0..=200.0).contains(&x)
+        {
+            info.d90 = Some(x);
+        }
     }
     info
 }
@@ -970,7 +979,7 @@ pub fn fold(parsed: &Parsed, opts: &FoldOptions) -> Result<Model, String> {
         warn.push("두께 정보(T:)가 없어 1mm로 그렸습니다.".into());
     }
     info.thickness = t;
-    let d90_fn = opts.d90.map(|d| deduction_from_d90(d, t));
+    let d90_fn = opts.d90.or(info.d90).map(|d| deduction_from_d90(d, t));
     let mut out_segs = Vec::new();
     let mut bends_in: Vec<(P2, P2, f64, String)> = Vec::new();
     let mut marks: Vec<Vec<P2>> = Vec::new();

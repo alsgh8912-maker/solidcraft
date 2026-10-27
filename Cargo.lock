@@ -4294,6 +4294,7 @@ dependencies = [
  "solidcraft-io",
  "solidcraft-kernel",
  "solidcraft-render",
+ "solidcraft-sheetfold",
  "solidcraft-sketch",
  "thiserror 2.0.21",
  "toml_edit",
