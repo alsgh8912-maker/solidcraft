@@ -85,3 +85,97 @@ fn hostile_input_never_panics() {
         let _ = fold_dxf(text, &opts);
     }
 }
+
+/// A small DXF: closed polylines on layer 0, lines on the given layers.
+fn dxf(polys: &[Vec<[f64; 2]>], lines: &[(&str, [f64; 2], [f64; 2])]) -> String {
+    let mut o = String::from("0\nSECTION\n2\nENTITIES\n");
+    for p in polys {
+        o += &format!("0\nLWPOLYLINE\n8\n0\n90\n{}\n70\n1\n", p.len());
+        for q in p {
+            o += &format!("10\n{}\n20\n{}\n", q[0], q[1]);
+        }
+    }
+    for (layer, a, b) in lines {
+        o += &format!("0\nLINE\n8\n{layer}\n10\n{}\n20\n{}\n11\n{}\n21\n{}\n", a[0], a[1], b[0], b[1]);
+    }
+    o + "0\nENDSEC\n0\nEOF\n"
+}
+fn rect(x0: f64, y0: f64, x1: f64, y1: f64) -> Vec<[f64; 2]> {
+    vec![[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
+}
+fn circle(cx: f64, cy: f64, r: f64, n: usize) -> Vec<[f64; 2]> {
+    (0..n)
+        .map(|k| {
+            let a = k as f64 / n as f64 * std::f64::consts::TAU;
+            [cx + r * a.cos(), cy + r * a.sin()]
+        })
+        .collect()
+}
+
+/// 120 × 37.2 flat pattern of a 120 × 30 × 5 channel (0.8 t, deduction 1.4), two back bends,
+/// with a Ø22 hole (drawn as a fine polyline) right at the middle of the web and two slots.
+fn channel_with_holes() -> String {
+    let slot = |x0: f64, x1: f64| {
+        let mut p: Vec<[f64; 2]> = (0..=32)
+            .map(|k| {
+                let a = -std::f64::consts::FRAC_PI_2 + k as f64 / 32.0 * std::f64::consts::PI;
+                [x1 + 2.5 * a.cos(), 18.6 + 2.5 * a.sin()]
+            })
+            .collect();
+        p.extend((0..=32).map(|k| {
+            let a = std::f64::consts::FRAC_PI_2 + k as f64 / 32.0 * std::f64::consts::PI;
+            [x0 + 2.5 * a.cos(), 18.6 + 2.5 * a.sin()]
+        }));
+        p
+    };
+    dxf(
+        &[
+            rect(0.0, 0.0, 120.0, 37.2),
+            circle(60.0, 18.6, 11.0, 128),
+            circle(5.0, 18.6, 2.1, 128),
+            circle(115.0, 18.6, 2.1, 128),
+            slot(15.0, 40.0),
+            slot(80.0, 105.0),
+        ],
+        &[("Nck-DF", [0.0, 4.3], [120.0, 4.3]), ("Nck-DF", [0.0, 32.9], [120.0, 32.9])],
+    )
+}
+
+#[test]
+fn a_hole_at_the_middle_of_a_plate_does_not_hide_the_plate() {
+    let m = fold_dxf(&channel_with_holes(), &FoldOptions { thickness: Some(0.8), d90: Some(1.4), ..FoldOptions::default() })
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(m.mode, "한 장 전개도");
+    assert_eq!(m.faces.len(), 3, "{:?}", m.warnings);
+    let (got, exp) = (sorted(m.size), sorted([120.0, 30.0, 5.0]));
+    for k in 0..3 {
+        assert!((got[k] - exp[k]).abs() < 0.02, "size {:?}", m.size);
+    }
+    let root = m.faces.iter().find(|f| f.root).unwrap_or_else(|| panic!("no root"));
+    assert_eq!(root.holes.len() + root.circles.len(), 5);
+}
+
+#[test]
+fn every_plate_has_the_outside_dimension_its_bends_make() {
+    let m = fold_dxf(&channel_with_holes(), &FoldOptions { thickness: Some(0.8), d90: Some(1.4), ..FoldOptions::default() })
+        .unwrap_or_else(|e| panic!("{e}"));
+    let mut v: Vec<f64> = m.dims.iter().map(|d| d.v).collect();
+    v.sort_by(|a, b| a.total_cmp(b));
+    assert_eq!(v, vec![5.0, 5.0, 30.0]);
+    for d in &m.dims {
+        let len = ((d.b[0] - d.a[0]).powi(2) + (d.b[1] - d.a[1]).powi(2) + (d.b[2] - d.a[2]).powi(2)).sqrt();
+        assert!((len - d.v).abs() < 0.01, "{d:?}");
+    }
+}
+
+#[test]
+fn without_bend_lines_the_part_is_a_plate_one_thickness_thick() {
+    let m = fold_dxf(
+        &dxf(&[rect(0.0, 0.0, 200.0, 100.0), circle(50.0, 50.0, 5.0, 32)], &[]),
+        &FoldOptions { thickness: Some(1.6), ..FoldOptions::default() },
+    )
+    .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(m.mode, "평판");
+    assert_eq!(m.size, [200.0, 100.0, 1.6]);
+    assert!(m.dims.is_empty());
+}

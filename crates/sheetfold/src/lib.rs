@@ -428,32 +428,63 @@ fn point_in_poly(p: P2, poly: &[P2]) -> bool {
     }
     ins
 }
-fn interior_point(poly: &[P2]) -> P2 {
+/// 다각형 안쪽 점 (가로 스캔). `others` = 다른 닫힌 선들 — 이 다각형 안에 든 구멍(원·장공) 안쪽은 피한다
+/// (판 한가운데에 구멍이 있으면 판의 한가운데 점이 구멍 안에 들어가 판을 빈 곳으로 잘못 보던 문제).
+fn interior_point(poly: &[P2], others: &[&Vec<P2>]) -> P2 {
     let Some(&first) = poly.first() else { return [0.0, 0.0] };
     let (y0, y1) = poly.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), p| (a.min(p[1]), b.max(p[1])));
-    for f in [0.5, 0.37, 0.63, 0.21, 0.79, 0.11, 0.89, 0.03, 0.97] {
+    let xs_of = |q: &[P2], y: f64, out: &mut Vec<f64>| {
+        for k in 0..q.len() {
+            let (a, b) = (q[k], q[(k + 1) % q.len()]);
+            if (a[1] > y) != (b[1] > y) {
+                out.push(a[0] + (y - a[1]) * (b[0] - a[0]) / (b[1] - a[1]));
+            }
+        }
+    };
+    let own = area(poly).abs();
+    // 이 다각형 안에 든 더 작은 닫힌 선 (같은 선을 반대로 돈 루프는 넓이가 같아 빠진다)
+    let inner: Vec<&Vec<P2>> = others.iter().copied().filter(|q| q.len() >= 3 && area(q).abs() < own - 1e-6).collect();
+    let mut fallback: Option<P2> = None;
+    for f in [0.5, 0.37, 0.63, 0.21, 0.79, 0.11, 0.89, 0.03, 0.97, 0.45, 0.55, 0.29, 0.71, 0.16, 0.84, 0.07, 0.93] {
         let y = y0 + (y1 - y0) * f;
         let mut xs: Vec<f64> = Vec::new();
-        for k in 0..poly.len() {
-            let (a, b) = (poly[k], poly[(k + 1) % poly.len()]);
-            if (a[1] > y) != (b[1] > y) {
-                xs.push(a[0] + (y - a[1]) * (b[0] - a[0]) / (b[1] - a[1]));
-            }
-        }
+        xs_of(poly, y, &mut xs);
         xs.sort_by(|a, b| a.total_cmp(b));
-        let mut best: Option<(f64, f64)> = None;
-        for k in (0..xs.len().saturating_sub(1)).step_by(2) {
-            if best.is_none_or(|b| xs[k + 1] - xs[k] > b.1 - b.0) {
-                best = Some((xs[k], xs[k + 1]));
+        if fallback.is_none() {
+            let mut best: Option<(f64, f64)> = None;
+            for k in (0..xs.len().saturating_sub(1)).step_by(2) {
+                if best.is_none_or(|b| xs[k + 1] - xs[k] > b.1 - b.0) {
+                    best = Some((xs[k], xs[k + 1]));
+                }
+            }
+            if let Some(b) = best
+                && b.1 - b.0 > 1e-6
+            {
+                fallback = Some([(b.0 + b.1) / 2.0, y]);
             }
         }
-        if let Some(b) = best
-            && b.1 - b.0 > 1e-6
-        {
-            return [(b.0 + b.1) / 2.0, y];
+        let mut all = xs.clone();
+        for q in &inner {
+            xs_of(q, y, &mut all);
+        }
+        all.sort_by(|a, b| a.total_cmp(b));
+        let mut best: Option<(f64, P2)> = None;
+        for k in 0..all.len().saturating_sub(1) {
+            let w = all[k + 1] - all[k];
+            if w <= 1e-6 || best.is_some_and(|b| w <= b.0) {
+                continue;
+            }
+            let p = [(all[k] + all[k + 1]) / 2.0, y];
+            if !point_in_poly(p, poly) || inner.iter().any(|q| point_in_poly(p, q)) {
+                continue;
+            }
+            best = Some((w, p));
+        }
+        if let Some((_, p)) = best {
+            return p;
         }
     }
-    first
+    fallback.unwrap_or(first)
 }
 fn seg_dist(p: P2, a: P2, b: P2) -> (f64, f64) {
     let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
@@ -794,6 +825,17 @@ pub struct Bend {
     pub b: P2,
 }
 
+/// 절곡으로 생기는 치수 하나: 면 `face`의, 그 면에 닿는 절곡선에 직각인 외치수.
+/// `a`→`b`는 외치수면 위(3D), `o`는 치수선을 밀어낼 방향(단위 벡터), `v`는 값(mm).
+#[derive(Debug, Clone, Serialize)]
+pub struct FaceDim {
+    pub face: usize,
+    pub a: [f64; 3],
+    pub b: [f64; 3],
+    pub o: [f64; 3],
+    pub v: f64,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct Model {
     /// "한 장 전개도" | "펼친 면" | "혼합" | "평판"
@@ -802,8 +844,10 @@ pub struct Model {
     pub thickness: f64,
     pub faces: Vec<Face>,
     pub bends: Vec<Bend>,
-    /// 3D 외곽 크기 (외치수면 기준)
+    /// 3D 외곽 크기 (외치수면 기준, 평판은 두께 포함)
     pub size: [f64; 3],
+    /// 절곡으로 생기는 치수 (면마다, 닿는 절곡선 방향마다 하나)
+    pub dims: Vec<FaceDim>,
     pub warnings: Vec<String>,
 }
 
@@ -1033,8 +1077,9 @@ pub fn fold(parsed: &Parsed, opts: &FoldOptions) -> Result<Model, String> {
     let mut faces: Vec<F> = Vec::new();
     let mut voids: Vec<P2> = Vec::new();
     let mut void_pts: Vec<Vec<P2>> = Vec::new();
+    let all_loops: Vec<&Vec<P2>> = g.loops.iter().map(|l| &l.1).collect();
     for l in g.loops.iter().filter(|l| l.2 > 1e-6) {
-        let ip = interior_point(&l.1);
+        let ip = interior_point(&l.1, &all_loops);
         let depth = outer.iter().filter(|o| point_in_poly(ip, o)).count();
         if depth % 2 == 1 {
             faces.push(F { pts: l.1.clone(), halves: l.0.clone(), ip, area: l.2, depth, holes: vec![], circles: vec![], marks: vec![] });
@@ -1218,6 +1263,7 @@ pub fn fold(parsed: &Parsed, opts: &FoldOptions) -> Result<Model, String> {
     }
     // 외치수까지 늘리기 + 결과
     let mut out_faces = Vec::new();
+    let mut dims = Vec::new();
     let (mut mn, mut mx) = ([f64::INFINITY; 3], [f64::NEG_INFINITY; 3]);
     for &f in &order {
         let mut pts = faces[f].pts.clone();
@@ -1264,6 +1310,43 @@ pub fn fold(parsed: &Parsed, opts: &FoldOptions) -> Result<Model, String> {
             BendOfFace { layer: bends_in[l.bend].3.clone(), angle: bend_ang[l.bend], d, flat: l.flat }
         });
         let outer = axis_of[f].map(|(o, n)| (pts.iter().map(|p| dot(sub(*p, o), n)).fold(f64::NEG_INFINITY, f64::max) * 1000.0).round() / 1000.0);
+        // 절곡으로 생기는 치수: 이 면에 닿는 절곡선마다(같은 방향은 한 번) 절곡선에 직각인 외치수,
+        // 외치수면(z=0) 위, 면 끝(절곡선 방향으로 가장 앞) 모서리에
+        let mut seen: Vec<P2> = Vec::new();
+        for l in links.iter().filter(|l| l.f1 == f || l.f2 == f) {
+            let other = if l.f1 == f { l.f2 } else { l.f1 };
+            if place[other].is_none() {
+                continue;
+            }
+            let (a, b, _, _) = &bends_in[l.bend];
+            let ax = unit(sub(*b, *a));
+            if seen.iter().any(|s| dot(*s, ax).abs() > 0.999) {
+                continue;
+            }
+            seen.push(ax);
+            let n = [-ax[1], ax[0]];
+            let (mut d0, mut d1, mut t0) = (f64::INFINITY, f64::NEG_INFINITY, f64::INFINITY);
+            for p in &pts {
+                let (d, t) = (dot(*p, n), dot(*p, ax));
+                d0 = d0.min(d);
+                d1 = d1.max(d);
+                t0 = t0.min(t);
+            }
+            if !(d1 - d0 > 0.05) {
+                continue;
+            }
+            let pa = [n[0] * d0 + ax[0] * t0, n[1] * d0 + ax[1] * t0];
+            let pb = [n[0] * d1 + ax[0] * t0, n[1] * d1 + ax[1] * t0];
+            let r = &pl.r;
+            let o = [-(r[0] * ax[0] + r[1] * ax[1]), -(r[3] * ax[0] + r[4] * ax[1]), -(r[6] * ax[0] + r[7] * ax[1])];
+            dims.push(FaceDim {
+                face: f,
+                a: pl.apply([pa[0], pa[1], 0.0]),
+                b: pl.apply([pb[0], pb[1], 0.0]),
+                o,
+                v: ((d1 - d0) * 1000.0).round() / 1000.0,
+            });
+        }
         out_faces.push(Face {
             id: f,
             root: f == root,
@@ -1295,7 +1378,9 @@ pub fn fold(parsed: &Parsed, opts: &FoldOptions) -> Result<Model, String> {
             .iter()
             .map(|l| Bend { layer: bends_in[l.bend].3.clone(), angle: bend_ang[l.bend], flat: l.flat, a: bends_in[l.bend].0, b: bends_in[l.bend].1 })
             .collect(),
-        size: [r3(mx[0] - mn[0]), r3(mx[1] - mn[1]), r3(mx[2] - mn[2])],
+        // 평판은 두께가 높이 (면이 하나라 외치수면만으로는 0)
+        size: [r3(mx[0] - mn[0]), r3(mx[1] - mn[1]), if mode == "평판" { r3(t) } else { r3(mx[2] - mn[2]) }],
+        dims,
         warnings: warn,
     })
 }
