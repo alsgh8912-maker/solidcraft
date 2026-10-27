@@ -1,0 +1,59 @@
+# 판금 전용판 실행 파일을 kerf-bin 브랜치에 25MB 조각으로 올린다.
+# (Artifacts 저장소에 닿지 못하는 곳에서도 git 으로 받을 수 있게.) 소스나 작업 데이터는 올리지 않는다.
+# kerf-windows.yml 이 끝나면 그 실행의 결과를, 손으로 돌리면(또는 이 파일이 바뀌면) 가장 최근 성공한 결과를 올린다.
+name: Kerf binaries branch
+
+on:
+  push:
+    branches: [kerf]
+    paths: [.github/workflows/kerf-bin.yml]
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      run_id:
+        type: string
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download the Windows build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          CALLER_RUN: ${{ inputs.run_id }}
+        run: |
+          run="$CALLER_RUN"
+          if [ -z "$run" ]; then
+            run=$(gh run list -R "$REPO" -w kerf-windows.yml -b kerf -s success -L 1 --json databaseId -q '.[0].databaseId')
+          fi
+          echo "run $run"
+          gh run download "$run" -R "$REPO" -n SolidCraft-kerf-windows-x64 -D dist
+          ls -la dist
+      - name: Push to kerf-bin
+        env:
+          REPO: ${{ github.repository }}
+          TOKEN: ${{ github.token }}
+        run: |
+          mkdir bin && cd bin
+          for f in ../dist/*; do
+            n=$(basename "$f")
+            if [ $(stat -c %s "$f") -gt 26214400 ]; then
+              split -b 25m --numeric-suffixes=1 -a 2 "$f" "$n.part"
+            else
+              cp "$f" .
+            fi
+          done
+          (cd ../dist && sha256sum *) > SHA256SUMS.txt
+          git init -q -b kerf-bin
+          git config user.name github-actions
+          git config user.email github-actions@users.noreply.github.com
+          git add -A
+          git commit -qm "SolidCraft kerf Windows build (${GITHUB_SHA::7})"
+          git push -f "https://x-access-token:${TOKEN}@github.com/${REPO}.git" kerf-bin

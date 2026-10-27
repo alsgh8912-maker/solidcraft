@@ -6,10 +6,12 @@ name: Kerf Windows build
 on:
   push:
     branches: [kerf, "kerf/**"]
+    paths-ignore: [.github/workflows/kerf-bin.yml]
   workflow_dispatch:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: kerf-windows-${{ github.ref }}
@@ -51,3 +53,14 @@ jobs:
           path: dist/*
           retention-days: 30
           if-no-files-found: error
+
+  # 받은 실행 파일을 kerf-bin 브랜치에도 올린다 (kerf-bin.yml)
+  bin:
+    needs: windows-x64
+    if: github.ref == 'refs/heads/kerf'
+    permissions:
+      contents: write
+      actions: read
+    uses: ./.github/workflows/kerf-bin.yml
+    with:
+      run_id: ${{ github.run_id }}
