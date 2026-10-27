@@ -61,6 +61,10 @@ fn a_flat_plate_opens_as_a_base_flange() {
     assert_eq!(r["flanges"], 0);
     let got = size(&mut s);
     assert!((got[0] - 200.0).abs() < 1e-6 && (got[1] - 100.0).abs() < 1e-6 && (got[2] - 2.0).abs() < 1e-6, "{got:?}");
+    // The hole is cut: the plate is 200 × 100 × 2 less the Ø10 hole.
+    let vol = run(&mut s, "inspect.measure", json!({}))["total"]["volume_mm3"].as_f64().unwrap_or(f64::NAN);
+    let want = 200.0 * 100.0 * 2.0 - std::f64::consts::PI * 25.0 * 2.0;
+    assert!((vol - want).abs() / want < 2e-3, "volume {vol}, expected {want}");
 }
 
 #[test]

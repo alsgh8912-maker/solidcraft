@@ -207,7 +207,25 @@ fn import_flat(s: &mut Session, p: &Value) -> Result<Value> {
         if s.active_sketch.is_some() {
             s.execute("sketch.finish", &json!({}))?;
         }
+        // The plate is the profile with the holes: leave out the profiles that only fill a hole.
+        let fills: Vec<usize> = sketch
+            .as_u64()
+            .and_then(|id| {
+                let st = s.model.state();
+                let ss = st.sketch(id)?;
+                let sorted = |v: &[String]| {
+                    let mut v = v.to_vec();
+                    v.sort();
+                    v
+                };
+                let holes: Vec<Vec<String>> = ss.profiles.iter().flat_map(|p| p.hole_curves.iter().map(|h| sorted(h))).collect();
+                Some(ss.profiles.iter().enumerate().filter(|(_, p)| !holes.contains(&sorted(&p.outer_curves))).map(|(i, _)| i).collect())
+            })
+            .unwrap_or_default();
         let mut base = json!({"sketch": sketch});
+        if !fills.is_empty() {
+            base["profiles"] = json!(fills);
+        }
         if let Some(name) = str_(p, "name").map(str::trim).filter(|n| !n.is_empty()) {
             base["body_name"] = json!(name);
         }

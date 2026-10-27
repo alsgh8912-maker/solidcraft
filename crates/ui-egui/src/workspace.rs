@@ -264,8 +264,13 @@ pub const SECTIONS: &[Section] = &[
     Section {
         tab: "SHEET METAL",
         panel: "CREATE",
-        promoted: 4,
-        ids: &["sheet.flange", "sheet.path_flange", "sheet.hem", "sheet.fold", "sheet.perforate", "sheet.convert", "sheet.import_flat"],
+        // Open Flat Pattern leads in the sheet-metal edition: most parts start from a laser DXF.
+        promoted: if SHEET_ONLY { 5 } else { 4 },
+        ids: if SHEET_ONLY {
+            &["sheet.import_flat", "sheet.flange", "sheet.path_flange", "sheet.hem", "sheet.fold", "sheet.perforate", "sheet.convert"]
+        } else {
+            &["sheet.flange", "sheet.path_flange", "sheet.hem", "sheet.fold", "sheet.perforate", "sheet.convert", "sheet.import_flat"]
+        },
     },
     Section { tab: "SHEET METAL", panel: "FLAT", promoted: 3, ids: &["sheet.unfold", "sheet.refold", "sheet.flat_pattern"] },
     // DXF for the laser, the bend table, and the folded part as STEP for other CAD.
